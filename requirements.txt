@@ -1,5 +1,6 @@
 streamlit
 pandas
 matplotlib
+python-docx
 openpyxl
 python-pptx
