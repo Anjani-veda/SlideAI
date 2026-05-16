@@ -1,25 +1,24 @@
-import mysql.connector
+import sqlite3
 import json
 import hashlib
 
+# =========================================================
+# PASSWORD HASHING
+# =========================================================
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 
 # =========================================================
-# DB CONNECTION
+# DB CONNECTION (SQLite)
 # =========================================================
 def get_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="123456789",
-        database="ExcelDB"
-    )
+    conn = sqlite3.connect("app.db", check_same_thread=False)
+    return conn
 
 
 # =========================================================
-# CREATE TABLE (UPGRADED STRUCTURE)
+# CREATE TABLES
 # =========================================================
 def create_users_table():
     conn = get_connection()
@@ -27,127 +26,18 @@ def create_users_table():
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(255) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        phone VARCHAR(20) DEFAULT NULL,
-        otp VARCHAR(6) DEFAULT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        phone TEXT,
+        otp TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
     conn.commit()
-    cur.close()
     conn.close()
 
-def register_user(username, password, phone):
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        query = "INSERT INTO users (username, password_hash, phone) VALUES (%s, %s, %s)"
-        values = (username, hash_password(password), phone)
-        cur.execute(query, values)
-        conn.commit()
-        return True, None
-    except mysql.connector.IntegrityError as err:
-        # Duplicate entry error (username already exists)
-        return False, "duplicate"
-    except mysql.connector.Error as err:
-        # General DB error
-        return False, str(err)
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
-
-def verify_user(username, password):
-    try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-        
-        query = "SELECT password_hash FROM users WHERE username = %s"
-        cur.execute(query, (username,))
-        user = cur.fetchone()
-        
-        if user and user['password_hash'] == hash_password(password):
-            return True
-        return False
-    except mysql.connector.Error as err:
-        return False
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
-
-def save_otp(username, otp):
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        query = "UPDATE users SET otp = %s WHERE username = %s"
-        cur.execute(query, (otp, username))
-        conn.commit()
-        return cur.rowcount > 0
-    except mysql.connector.Error as err:
-        return False
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
-
-def verify_otp(username, otp):
-    try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-        query = "SELECT otp FROM users WHERE username = %s"
-        cur.execute(query, (username,))
-        user = cur.fetchone()
-        if user and user['otp'] == otp:
-            return True
-        return False
-    except mysql.connector.Error as err:
-        return False
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
-
-def update_password(username, new_password):
-    try:
-        conn = get_connection()
-        cur = conn.cursor()
-        query = "UPDATE users SET password_hash = %s, otp = NULL WHERE username = %s"
-        cur.execute(query, (hash_password(new_password), username))
-        conn.commit()
-        return cur.rowcount > 0
-    except mysql.connector.Error as err:
-        return False
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
-
-def get_user_phone(username):
-    try:
-        conn = get_connection()
-        cur = conn.cursor(dictionary=True)
-        query = "SELECT phone FROM users WHERE username = %s"
-        cur.execute(query, (username,))
-        user = cur.fetchone()
-        if user:
-            return user['phone']
-        return None
-    except mysql.connector.Error as err:
-        return None
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
 
 def create_reports_table():
     conn = get_connection()
@@ -155,98 +45,162 @@ def create_reports_table():
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS reports (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        file_name VARCHAR(255),
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_name TEXT,
         file_path TEXT,
-        user_name VARCHAR(255),
+        user_name TEXT,
 
-        total_value FLOAT,
-        avg_value FLOAT,
-        max_value FLOAT,
-        min_value FLOAT,
-        records INT,
+        total_value REAL,
+        avg_value REAL,
+        max_value REAL,
+        min_value REAL,
+        records INTEGER,
 
-        insights LONGTEXT,
-        chart_count INT,
+        insights TEXT,
+        chart_count INTEGER,
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
     conn.commit()
-    cur.close()
     conn.close()
 
 
 # =========================================================
-# SAVE REPORT (FULL ANALYTICS)
+# USER FUNCTIONS
 # =========================================================
-def save_report(
-    file_name,
-    file_path,
-    user_name,
-    kpis,
-    insights,
-    charts
-):
+def register_user(username, password, phone):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
 
+        cur.execute("""
+        INSERT INTO users (username, password_hash, phone)
+        VALUES (?, ?, ?)
+        """, (username, hash_password(password), phone))
+
+        conn.commit()
+        return True, None
+
+    except sqlite3.IntegrityError:
+        return False, "duplicate"
+
+    finally:
+        conn.close()
+
+
+def verify_user(username, password):
     conn = get_connection()
     cur = conn.cursor()
 
-    query = """
+    cur.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+    user = cur.fetchone()
+
+    conn.close()
+
+    if user and user[0] == hash_password(password):
+        return True
+    return False
+
+
+def save_otp(username, otp):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("UPDATE users SET otp = ? WHERE username = ?", (otp, username))
+    conn.commit()
+
+    success = cur.rowcount > 0
+    conn.close()
+    return success
+
+
+def verify_otp(username, otp):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT otp FROM users WHERE username = ?", (username,))
+    user = cur.fetchone()
+
+    conn.close()
+
+    if user and user[0] == otp:
+        return True
+    return False
+
+
+def update_password(username, new_password):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+    UPDATE users
+    SET password_hash = ?, otp = NULL
+    WHERE username = ?
+    """, (hash_password(new_password), username))
+
+    conn.commit()
+
+    success = cur.rowcount > 0
+    conn.close()
+    return success
+
+
+def get_user_phone(username):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("SELECT phone FROM users WHERE username = ?", (username,))
+    user = cur.fetchone()
+
+    conn.close()
+
+    return user[0] if user else None
+
+
+# =========================================================
+# REPORT FUNCTIONS
+# =========================================================
+def save_report(file_name, file_path, user_name, kpis, insights, charts):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
     INSERT INTO reports (
-        file_name,
-        file_path,
-        user_name,
-        total_value,
-        avg_value,
-        max_value,
-        min_value,
-        records,
-        insights,
-        chart_count
+        file_name, file_path, user_name,
+        total_value, avg_value, max_value, min_value, records,
+        insights, chart_count
     )
-    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    """
-
-    values = (
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
         file_name,
         file_path,
         user_name,
-
         kpis.get("Total Value", 0.0),
         kpis.get("Average", 0.0),
         kpis.get("Max Value", 0.0),
         kpis.get("Min Value", 0.0),
         kpis.get("Records", 0),
-
         json.dumps(insights),
         len(charts)
-    )
+    ))
 
-    cur.execute(query, values)
     conn.commit()
-
-    cur.close()
     conn.close()
 
     return True
 
 
-# =========================================================
-# FETCH REPORT HISTORY
-# =========================================================
 def get_reports():
     conn = get_connection()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
 
     cur.execute("SELECT * FROM reports ORDER BY created_at DESC")
-    data = cur.fetchall()
+    rows = cur.fetchall()
 
-    cur.close()
     conn.close()
-
-    return data
+    return rows
 
 
 # =========================================================
@@ -255,4 +209,4 @@ def get_reports():
 if __name__ == "__main__":
     create_users_table()
     create_reports_table()
-    print("Users and Reports tables ready")
+    print("SQLite DB ready (app.db)")
