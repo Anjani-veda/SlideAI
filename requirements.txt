@@ -5,3 +5,4 @@ python-docx
 openpyxl
 python-pptx
 fpdf2
+mysql-connector-python
